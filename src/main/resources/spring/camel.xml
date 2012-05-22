@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="http://www.springframework.org/schema/beans"
+	xsi:schemaLocation="
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+	<camelContext id="camelContext" xmlns="http://camel.apache.org/schema/spring">
+		<onException>
+			<exception>java.lang.Throwable</exception>
+			<log loggingLevel="ERROR" message="系统批处理任务执行异常：${exception.message}" logName="com.cucpay.BatchJobs"/>
+		</onException>
+		<route>
+			<from uri="quartz://batch/start?cron=0+0+23+*+*+?"/>
+			<to uri="direct://doBatch"/>
+		</route>
+		<route>
+			<from uri="direct://doBatch"/>
+			<log loggingLevel="INFO" message="开始运行账务系统批处理……" logName="com.cucpay.BatchJobs"/>
+			<bean ref="tbatchRunStaManager" method="doBatch"/>
+			<choice>
+				<when>
+					<simple>${body} == true</simple>
+					<bean ref="tbatchRunStaManager" method="doBatchResultCheck"/>
+					<choice>
+						<when>
+							<simple>${body} == null</simple>
+							<log loggingLevel="INFO" message="账务系统批处理运行成功。" logName="com.cucpay.BatchJobs"/>
+							<to uri="direct://batchStl"/>
+						</when>
+						<otherwise>
+							<log loggingLevel="ERROR" message="账务系统批处理运行失败。失败任务：${body}" logName="com.cucpay.BatchJobs"/>
+							<setHeader headerName="smsContent">
+								<simple>批处理任务[${body}]失败，请及时处理。</simple>
+							</setHeader>
+							<!--to uri="sms://15880242090"/-->
+							<log loggingLevel="INFO" message="发送短信成功。号码：${header.mobileNo}，内容：${header.smsContent}" logName="com.cucpay.BatchJobs"/>
+						</otherwise>
+					</choice>
+				</when>
+				<otherwise>
+					<log loggingLevel="ERROR" message="账务批处理任务无法自动开始。" logName="com.cucpay.BatchJobs"/>
+					<setHeader headerName="smsContent">
+						<simple>账务批处理任务无法自动开始，请及时处理。</simple>
+					</setHeader>
+					<!--to uri="sms://15880242090"/-->
+					<log loggingLevel="INFO" message="发送短信成功。号码：${header.mobileNo}，内容：${header.smsContent}" logName="com.cucpay.BatchJobs"/>
+				</otherwise>
+			</choice>
+		</route>
+		<route>
+			<from uri="direct://batchStl"/>
+			<log loggingLevel="INFO" message="开始运行清算系统批处理……" logName="com.cucpay.BatchJobs"/>
+			<bean ref="tbatchRunStaManager" method="doStlBatch"/>
+			<log loggingLevel="INFO" message="Rescode: ${body.rescode}" logName="com.cucpay.BatchJobs"/>
+			<bean ref="tbatchRunStaManager" method="doStlBatchResultCheck"/>
+			<choice>
+				<when>
+					<simple>${body} == null</simple>
+					<log loggingLevel="INFO" message="清算系统批处理运行成功。" logName="com.cucpay.BatchJobs"/>
+				</when>
+				<otherwise>
+					<log loggingLevel="ERROR" message="清算系统批处理运行失败。失败任务：${body}" logName="com.cucpay.BatchJobs"/>
+					<setHeader headerName="smsContent">
+						<simple>批处理任务[${body}]失败，请及时处理。</simple>
+					</setHeader>
+					<!--to uri="sms://15880242090"/-->
+					<log loggingLevel="INFO" message="发送短信成功。号码：${header.mobileNo}，内容：${header.smsContent}" logName="com.cucpay.BatchJobs"/>
+				</otherwise>
+			</choice>
+		</route>
+	</camelContext>
+</beans>
